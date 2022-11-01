@@ -470,9 +470,17 @@ void TexColumnsApp::LoadTextures()
 		mCommandList.Get(), tileTex->Filename.c_str(),
 		tileTex->Resource, tileTex->UploadHeap));
 
+	auto crateTex = std::make_unique<Texture>();
+	crateTex->Name = "crateTex";
+	crateTex->Filename = L"../../Textures/WoodCrate01.dds";
+	ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+		mCommandList.Get(), crateTex->Filename.c_str(),
+		crateTex->Resource, crateTex->UploadHeap));
+
 	mTextures[bricksTex->Name] = std::move(bricksTex);
 	mTextures[stoneTex->Name] = std::move(stoneTex);
 	mTextures[tileTex->Name] = std::move(tileTex);
+	mTextures[crateTex->Name] = std::move(crateTex);
 }
 
 void TexColumnsApp::BuildRootSignature()
@@ -524,7 +532,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	// Create the SRV heap.
 	//
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 3;
+	srvHeapDesc.NumDescriptors = 4;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -537,6 +545,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	auto bricksTex = mTextures["bricksTex"]->Resource;
 	auto stoneTex = mTextures["stoneTex"]->Resource;
 	auto tileTex = mTextures["tileTex"]->Resource;
+	auto crateTex = mTextures["crateTex"]->Resource;
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -560,6 +569,13 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	srvDesc.Format = tileTex->GetDesc().Format;
 	srvDesc.Texture2D.MipLevels = tileTex->GetDesc().MipLevels;
 	md3dDevice->CreateShaderResourceView(tileTex.Get(), &srvDesc, hDescriptor);
+
+	// next descriptor
+	hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+	srvDesc.Format = crateTex->GetDesc().Format;
+	srvDesc.Texture2D.MipLevels = crateTex->GetDesc().MipLevels;
+	md3dDevice->CreateShaderResourceView(crateTex.Get(), &srvDesc, hDescriptor);
 }
 
 void TexColumnsApp::BuildShadersAndInputLayout()
@@ -772,10 +788,19 @@ void TexColumnsApp::BuildMaterials()
 	tile0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     tile0->FresnelR0 = XMFLOAT3(0.02f, 0.02f, 0.02f);
     tile0->Roughness = 0.3f;
+ 
+	auto crate0 = std::make_unique<Material>();
+	crate0->Name = "crate0";
+	crate0->MatCBIndex = 3;
+	crate0->DiffuseSrvHeapIndex = 3;
+	crate0->DiffuseAlbedo = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	crate0->FresnelR0 = XMFLOAT3(0.1f, 0.1f, 0.1f);
+	crate0->Roughness = 0.7f;
 	
 	mMaterials["bricks0"] = std::move(bricks0);
 	mMaterials["stone0"] = std::move(stone0);
 	mMaterials["tile0"] = std::move(tile0);
+	mMaterials["crate0"] = std::move(crate0);
 }
 
 void TexColumnsApp::BuildRenderItems()
@@ -791,11 +816,23 @@ void TexColumnsApp::BuildRenderItems()
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(boxRitem));
+	
+	auto crateRitem = std::make_unique<RenderItem>();
+	XMStoreFloat4x4(&crateRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f)*XMMatrixTranslation(0.0f, 1.0f, 5.0f));
+	XMStoreFloat4x4(&crateRitem->TexTransform, XMMatrixScaling(1.0f, 1.0f, 1.0f));
+	crateRitem->ObjCBIndex = 1;
+	crateRitem->Mat = mMaterials["crate0"].get();
+	crateRitem->Geo = mGeometries["shapeGeo"].get();
+	crateRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+	crateRitem->IndexCount = crateRitem->Geo->DrawArgs["box"].IndexCount;
+	crateRitem->StartIndexLocation = crateRitem->Geo->DrawArgs["box"].StartIndexLocation;
+	crateRitem->BaseVertexLocation = crateRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(crateRitem));
 
     auto gridRitem = std::make_unique<RenderItem>();
     gridRitem->World = MathHelper::Identity4x4();
 	XMStoreFloat4x4(&gridRitem->TexTransform, XMMatrixScaling(8.0f, 8.0f, 1.0f));
-	gridRitem->ObjCBIndex = 1;
+	gridRitem->ObjCBIndex = 2;
 	gridRitem->Mat = mMaterials["tile0"].get();
 	gridRitem->Geo = mGeometries["shapeGeo"].get();
 	gridRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
@@ -805,7 +842,7 @@ void TexColumnsApp::BuildRenderItems()
 	mAllRitems.push_back(std::move(gridRitem));
 
 	XMMATRIX brickTexTransform = XMMatrixScaling(1.0f, 1.0f, 1.0f);
-	UINT objCBIndex = 2;
+	UINT objCBIndex = 3;
 	for(int i = 0; i < 5; ++i)
 	{
 		auto leftCylRitem = std::make_unique<RenderItem>();
